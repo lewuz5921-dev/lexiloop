@@ -1,10 +1,12 @@
-# 词境 LexiLoop · 雅思语境抗遗忘背词系统
+# 词境 LexiLoop · 雅思语境背词
 
-> 极简语境，搞定雅思核心词。摆脱死记硬背，在真实生活画面里重建词汇记忆。
+> 背单词，先把会的挑出去。剩下的攒成一组，读一篇短文记住它们，再用填空考一遍。
 
-**LexiLoop（中文名「词境」）** 是一个面向雅思考生（目标 7.5+）的语境背词 Web 应用：快速过滤熟词 → 每凑齐一批生词 → AI 即时生成极简易读的情景短文 → 双语对照阅读 → 完形填空通关测试 → 间隔重复复习。
+**LexiLoop（中文名「词境」）** 是一个面向雅思考生（目标 7.5+）的语境背词 Web 应用：快速过滤熟词 → 每凑齐一批生词 → AI 即时生成一篇连贯的情景短文 → 双语对照阅读 → 完形填空通关测试 → 间隔重复复习。
 
 核心亮点：**难度阶梯**。文章与题目难度随等级递增，初级模式用简单词汇与短句、并减少每篇词量，避免「给药过猛」。
+
+**在线演示**：https://lewuz5921-dev.github.io/lexiloop/
 
 ---
 
@@ -18,7 +20,7 @@
   - 难度偏好自动保存在浏览器（localStorage），可云端同步。
 - **AI 情景短文**：通过 Supabase Edge Function 调用大模型（服务端持有 Key，前端零密钥暴露），在真实画面里锁定词义；高亮目标词，点击查看中英释义。
 - **双语对照阅读**：长距离视觉屏障，避免无意识瞟中文；可一键解锁译文。
-- **句子挖空通关测试**：为每个目标词生成一句语境例句并挖空，从选项中选出正确单词；答对的移除生词池，模糊的打回重练。
+- **句子挖空通关测试**：为每个目标词生成一句语境例句并挖空，从选项中选出正确单词；答对的移除生词池，选错的回到生词池、和其他未学词一起重新筛（不会整批重背）。
 - **间隔重复（Spaced Repetition）**：基于简化 SM-2 算法计算下次复习时间，支持「温故知新」复习已掌握词。
 - **游客模式（零门槛体验）**：登录页一键「游客免费体验」，无需注册即可完整体验「筛选生词 → AI 情景短文 → 双语阅读 → 完形填空 → 掌握报告」全流程。进度自动保存在本机浏览器（localStorage），刷新 / 次日重开仍保留，仅限当前设备。
 - **云端同步 + 账号系统**：邮箱 / Google 登录，进度自动同步到云端，跨设备可用。游客随时可点「登录保存进度」升级为正式账号。
@@ -56,8 +58,8 @@
   "difficulty": "beginner | intermediate | advanced",
   "mode": "user | guest",
   "constraints": {
-    "max_sentences": 3,
-    "max_words_per_sentence": 12,
+    "max_sentences": 5,
+    "max_words_per_sentence": 16,
     "style": "simple",
     "tone": "daily",
     "no_dialogue": true
@@ -65,15 +67,15 @@
 }
 ```
 
-| 难度 | 每篇目标词量 | 干扰项数量 | 文章特征 |
-|------|-------------|-----------|---------|
-| `beginner` | 5 | 2 | 简单词汇、短句、生活化 |
-| `intermediate` | 8 | 3 | 标准雅思语境 |
-| `advanced` | 10 | 4 | 学术长难句、高密度 |
+| 难度 | 每篇目标词量 | 句数预算 | 干扰项数量 | 文章特征 |
+|------|-------------|---------|-----------|---------|
+| `beginner` | 5 | 5 | 2 | 简单词汇、短句、生活化 |
+| `intermediate` | 8 | 8 | 3 | 标准雅思语境 |
+| `advanced` | 10 | 10 | 4 | 学术长难句、高密度 |
 
 Edge Function **必须读取 `difficulty` 字段** 来控制文章难度（前端已传递，服务端据此调炮制 prompt）。即使服务端暂不支持，`batchSize` 与干扰项数量仍由前端严格控制，保证「给药过猛」问题在客户端被解决。
 
-`constraints` 为**文章硬性长度边界**：默认 `max_sentences=3`、`max_words_per_sentence=12`、`no_dialogue=true`。服务端读取后写入 prompt，强制 AI 产出「极简短句、日常生活场景、无对话、无宏大叙事」的短文。
+`constraints` 为**文章长度边界**：前端按难度传入句数预算（初级 5 句 / 中级 8 句 / 高级 10 句，与目标词量一一对应），句长上限、无对话、日常生活场景等由服务端读取后写入 prompt。这样每个目标词都有独立的一句来自然承载，AI 才能写出一篇**场景连贯、句句相关**的小故事，而不是多个目标词硬塞进同一句、句句无关的「词典式拼凑」。
 
 `mode` 标识调用方身份：`user` 为已登录用户（携带 Bearer Token），`guest` 为游客（无 Token）。若希望游客也能获得 AI 短文，请在 Edge Function 中放行匿名 `generate_story` 请求并加 IP/频率限流（见下方「游客模式」一节）。若未放开，游客将自动回退到本地兜底短文，全流程仍可用。
 
@@ -191,9 +193,7 @@ create policy "own_stats"     on public.user_stats
 
 大模型 Key（如 DeepSeek）**仅存于你的 Supabase 服务端环境变量**，**不要** 写进前端或 git 仓库。本前端只通过 `js/supabase-client.js` 中的 `SUPABASE_URL + "/functions/v1/generate-story"` 调用它，从不持有任何密钥。
 
-> ⚠️ **重要：本仓库的 `functions/generate-story/index.ts` 仅作为「可选升级参考」，请勿直接部署覆盖。**
-> 你的 Supabase 项目里**已经部署了一个正常工作的 `generate-story` 函数**（实测返回 HTTP 200 与完整的 DeepSeek 生成故事 JSON，含 `title` / `story` / `translation` / `questions`）。如果你去 Supabase 后台「New Function 并粘贴本仓库文件」部署，会**覆盖掉你现有的正常运行函数**。
-> 只有在「原函数丢失 / 想重建 / 想升级（换模型、加限流、加超时）」时，才用本文件作为起点。
+> ⚠️ **重要：本仓库的 `functions/generate-story/index.ts` 就是线上部署的权威版本**，与 Supabase 上正在运行的函数保持一致。它会把前端传入的 `words` 真正写进发给大模型的 prompt，强制每个目标词都在故事中自然出现并高亮。如需升级（换模型、加限流、调 prompt），改这个文件后用 `supabase functions deploy generate-story --no-verify-jwt` 重新部署即可。
 > 前端期望的函数返回契约见下方示例（保持 `title / story / translation / questions[]` 字段即可兼容）。
 
 ```typescript
@@ -258,7 +258,7 @@ Return strictly JSON:
 >
 > 若 AI 服务不可用（函数未部署 / 未设密钥 / 跨域被拦 / JWT 未关闭），前端会自动使用 `js/vocabulary-data.js` 中每个词条的 `example` 字段（含 `_____` 占位符）生成本地兜底句子挖空题，保证游客/未登录用户也能完整体验。
 >
-> **关于「文章太长」**：本仓库参考实现 `functions/generate-story/index.ts` 已读取前端传入的 `constraints` 字段并写入 prompt，强制 AI 产出 **最多 3 句、每句 ≤12 词、日常生活场景、无对话** 的极简短文。若你 Supabase 上现有函数生成的文章仍偏长，可在后台编辑该函数，把同样边界写进 prompt；或备份后部署本仓库参考文件覆盖（注意：部署会覆盖你现有函数）。
+> **关于「故事连贯性」**：本仓库 `functions/generate-story/index.ts` 已按难度读取前端传入的句数预算（初级 5 句 / 中级 8 句 / 高级 10 句），并在 system prompt 中强制要求「唯一场景贯穿 + 时间/因果衔接（First / Then / However / So / Finally）+ 严禁一句一词、句句无关」，同时要求中文翻译通顺像人话。这样才能产出真正有情景、易读懂的小故事，而不是多个目标词硬塞的「词典式拼凑」。
 
 ### 4. 前端客户端配置
 
@@ -288,7 +288,17 @@ npx serve .
 
 ## ☁️ 部署
 
-纯静态产物，可部署到任意静态托管（CloudStudio、Vercel、Netlify、GitHub Pages 等）。确保 `index.html` 与 `login.html` 及 `js/` 目录一同上传。若托管平台对未知路径做 SPA 回退（fallback 到 index.html），不影响功能，但请勿依赖不存在的 `manifest.json` / `css/style.css` 等路径。
+纯静态产物，可部署到任意静态托管（Vercel、Netlify、GitHub Pages、CloudStudio 等）。确保 `index.html` 与 `login.html` 及 `js/` 目录一同上传。若托管平台对未知路径做 SPA 回退（fallback 到 index.html），不影响功能，但请勿依赖不存在的 `manifest.json` / `css/style.css` 等路径。
+
+### GitHub Pages（本项目已在用）
+
+本仓库已开启 GitHub Pages，在线演示地址：
+
+```
+https://lewuz5921-dev.github.io/lexiloop/
+```
+
+首次开启：仓库 Settings → Pages → Source 选 `Deploy from a branch` → Branch 选 `main` + `/ (root)` → Save。此后每次 `git push` 到 `main` 都会自动重新构建部署，链接不变。
 
 ---
 
