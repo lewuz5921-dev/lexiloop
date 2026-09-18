@@ -1,0 +1,19 @@
+# 依赖与构建产物
+node_modules/
+dist/
+build/
+*.log
+
+# 系统/编辑器
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/
+
+# 环境与密钥（切勿提交真实密钥）
+.env
+.env.*
+*.local
+
+# WorkBuddy 项目元数据
+.workbuddy/

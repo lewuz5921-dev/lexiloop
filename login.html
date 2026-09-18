@@ -1,0 +1,211 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>登录 - 词境 LexiLoop</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <style>
+        body { font-family: 'Inter', -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "PingFang SC", "Microsoft YaHei", sans-serif; }
+        .serif-font { font-family: 'Inter', -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "PingFang SC", "Microsoft YaHei", sans-serif; }
+    </style>
+</head>
+<body class="bg-slate-50 min-h-screen flex items-center justify-center p-4">
+
+    <div class="max-w-md w-full space-y-8">
+        <!-- Logo -->
+        <div class="text-center space-y-3">
+            <div class="bg-indigo-600 text-white p-4 rounded-2xl shadow-lg shadow-indigo-100 inline-block">
+                <i class="fa-solid fa-graduation-cap text-3xl"></i>
+            </div>
+            <h1 class="text-3xl font-extrabold text-slate-900 serif-font">LexiLoop</h1>
+            <p class="text-slate-500 text-sm">词境 · 雅思语境背词</p>
+        </div>
+
+        <!-- 登录/注册卡片 -->
+        <div class="bg-white rounded-3xl border border-slate-100 shadow-xl p-8 space-y-6">
+            <!-- 标签切换 -->
+            <div class="flex bg-slate-100 rounded-xl p-1">
+                <button id="tab-login" onclick="switchTab('login')" class="flex-1 py-2.5 rounded-lg text-sm font-semibold transition bg-white text-slate-900 shadow-sm">登录</button>
+                <button id="tab-register" onclick="switchTab('register')" class="flex-1 py-2.5 rounded-lg text-sm font-semibold transition text-slate-500">注册</button>
+            </div>
+
+            <!-- 登录表单 -->
+            <form id="login-form" class="space-y-4" onsubmit="handleLogin(event)">
+                <div>
+                    <label class="block text-xs font-semibold text-slate-500 uppercase tracking-wider mb-1">邮箱</label>
+                    <input type="email" id="login-email" required placeholder="your@email.com"
+                        class="w-full bg-slate-50 border border-slate-200 rounded-xl p-3 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500">
+                </div>
+                <div>
+                    <label class="block text-xs font-semibold text-slate-500 uppercase tracking-wider mb-1">密码</label>
+                    <input type="password" id="login-password" required placeholder="••••••••"
+                        class="w-full bg-slate-50 border border-slate-200 rounded-xl p-3 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500">
+                </div>
+                <button type="submit" class="w-full bg-indigo-600 hover:bg-indigo-700 text-white font-semibold py-3 px-4 rounded-xl transition shadow-lg shadow-indigo-100">
+                    登录
+                </button>
+            </form>
+
+            <!-- 注册表单 -->
+            <form id="register-form" class="hidden space-y-4" onsubmit="handleRegister(event)">
+                <div>
+                    <label class="block text-xs font-semibold text-slate-500 uppercase tracking-wider mb-1">邮箱</label>
+                    <input type="email" id="register-email" required placeholder="your@email.com"
+                        class="w-full bg-slate-50 border border-slate-200 rounded-xl p-3 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500">
+                </div>
+                <div>
+                    <label class="block text-xs font-semibold text-slate-500 uppercase tracking-wider mb-1">密码</label>
+                    <input type="password" id="register-password" required placeholder="至少 6 位"
+                        minlength="6" class="w-full bg-slate-50 border border-slate-200 rounded-xl p-3 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500">
+                </div>
+                <button type="submit" class="w-full bg-indigo-600 hover:bg-indigo-700 text-white font-semibold py-3 px-4 rounded-xl transition shadow-lg shadow-indigo-100">
+                    创建账号
+                </button>
+            </form>
+
+            <!-- 分隔线 -->
+            <div class="relative">
+                <div class="absolute inset-0 flex items-center"><div class="w-full border-t border-slate-200"></div></div>
+                <div class="relative flex justify-center text-xs"><span class="bg-white px-3 text-slate-400">或</span></div>
+            </div>
+
+            <!-- Google 登录 -->
+            <button onclick="handleGoogleLogin()" class="w-full bg-white hover:bg-slate-50 border border-slate-200 text-slate-700 font-semibold py-3 px-4 rounded-xl transition flex items-center justify-center space-x-3">
+                <i class="fa-brands fa-google text-red-500"></i>
+                <span>使用 Google 账号登录</span>
+            </button>
+
+            <!-- 游客模式：免注册直接体验 -->
+            <button onclick="enterGuestMode()" class="w-full bg-emerald-600 hover:bg-emerald-700 text-white font-semibold py-3 px-4 rounded-xl transition flex items-center justify-center space-x-3 shadow-lg shadow-emerald-100">
+                <i class="fa-solid fa-user-secret"></i>
+                <span>游客免费体验（无需登录）</span>
+            </button>
+
+            <!-- 错误提示 -->
+            <div id="error-msg" class="hidden bg-rose-50 border border-rose-100 text-rose-700 text-sm rounded-xl p-3 flex items-start space-x-2">
+                <i class="fa-solid fa-circle-exclamation mt-0.5"></i>
+                <span id="error-text"></span>
+            </div>
+
+            <!-- 成功提示 -->
+            <div id="success-msg" class="hidden bg-emerald-50 border border-emerald-100 text-emerald-700 text-sm rounded-xl p-3 flex items-start space-x-2">
+                <i class="fa-solid fa-circle-check mt-0.5"></i>
+                <span id="success-text"></span>
+            </div>
+        </div>
+
+        <p class="text-center text-xs text-slate-400">
+            登录即表示同意服务条款和隐私政策
+        </p>
+    </div>
+
+    <script src="js/supabase-client.js"></script>
+    <script>
+        let currentTab = "login";
+
+        function switchTab(tab) {
+            currentTab = tab;
+            document.getElementById("tab-login").className = tab === "login"
+                ? "flex-1 py-2.5 rounded-lg text-sm font-semibold transition bg-white text-slate-900 shadow-sm"
+                : "flex-1 py-2.5 rounded-lg text-sm font-semibold transition text-slate-500";
+            document.getElementById("tab-register").className = tab === "register"
+                ? "flex-1 py-2.5 rounded-lg text-sm font-semibold transition bg-white text-slate-900 shadow-sm"
+                : "flex-1 py-2.5 rounded-lg text-sm font-semibold transition text-slate-500";
+
+            document.getElementById("login-form").classList.toggle("hidden", tab !== "login");
+            document.getElementById("register-form").classList.toggle("hidden", tab !== "register");
+            hideMessages();
+        }
+
+        function showError(msg) {
+            document.getElementById("error-text").innerText = msg;
+            document.getElementById("error-msg").classList.remove("hidden");
+            document.getElementById("success-msg").classList.add("hidden");
+        }
+
+        function showSuccess(msg) {
+            document.getElementById("success-text").innerText = msg;
+            document.getElementById("success-msg").classList.remove("hidden");
+            document.getElementById("error-msg").classList.add("hidden");
+        }
+
+        function hideMessages() {
+            document.getElementById("error-msg").classList.add("hidden");
+            document.getElementById("success-msg").classList.add("hidden");
+        }
+
+        async function handleLogin(e) {
+            e.preventDefault();
+            hideMessages();
+            const email = document.getElementById("login-email").value.trim();
+            const password = document.getElementById("login-password").value;
+
+            try {
+                const { data, error } = await supabase.auth.signInWithPassword({ email, password });
+                if (error) throw error;
+                localStorage.removeItem("lexiloop_guest"); // 真实登录清除游客态
+                window.location.href = "index.html";
+            } catch (err) {
+                showError(err.message || "登录失败，请检查邮箱和密码");
+            }
+        }
+
+        async function handleRegister(e) {
+            e.preventDefault();
+            hideMessages();
+            const email = document.getElementById("register-email").value.trim();
+            const password = document.getElementById("register-password").value;
+
+            if (password.length < 6) {
+                showError("密码至少需要 6 位");
+                return;
+            }
+
+            try {
+                const { data, error } = await supabase.auth.signUp({ email, password });
+                if (error) throw error;
+
+                if (data.user?.identities?.length === 0) {
+                    showError("该邮箱已注册，请直接登录");
+                } else {
+                    localStorage.removeItem("lexiloop_guest"); // 真实注册清除游客态
+                    showSuccess("注册成功！请检查邮箱确认链接，或直接登录。");
+                    setTimeout(() => switchTab("login"), 2000);
+                }
+            } catch (err) {
+                showError(err.message || "注册失败，请稍后重试");
+            }
+        }
+
+        async function handleGoogleLogin() {
+            try {
+                const { data, error } = await supabase.auth.signInWithOAuth({
+                    provider: "google",
+                    options: { redirectTo: window.location.origin + "/index.html" },
+                });
+                if (error) throw error;
+                localStorage.removeItem("lexiloop_guest"); // 真实 OAuth 清除游客态
+            } catch (err) {
+                showError(err.message || "Google 登录失败");
+            }
+        }
+
+        // 游客模式：写入标记并进入主应用
+        function enterGuestMode() {
+            localStorage.setItem("lexiloop_guest", "1");
+            window.location.href = "index.html";
+        }
+
+        // 已登录用户自动跳转
+        (async () => {
+            const { data: { session } } = await supabase.auth.getSession();
+            if (session?.user) {
+                window.location.href = "index.html";
+            }
+        })();
+    </script>
+</body>
+</html>
