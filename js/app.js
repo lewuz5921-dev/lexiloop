@@ -368,6 +368,89 @@ const App = {
         this.triggerStoryGeneration();
     },
 
+    // 把中文译文里每个生词对应的片段标绿。
+    //
+    // 为什么不能只靠词典匹配：词典里 translation 是「承认；告知已收到；感谢」这种多义串，
+    // 而 AI 译文会根据语境写成「无法确认」「含糊不清」——精确匹配几乎必然失败，
+    // 结果就是整篇译文只有零星一两个词能标上。
+    // 所以主路径是让模型在生成译文时就带好 <span class="target-word">，
+    // 这里负责：① 保住这些标记 ② 给漏标的词做语境兜底 ③ 统一视觉样式。
+    markTranslationWords(html) {
+        const styleOpen = (word, text) =>
+            `<strong class="text-emerald-700 bg-emerald-50 rounded px-0.5" data-word="${_escapeAttr(word)}">${text}</strong>`;
+
+        let out = String(html || "");
+
+        // ① 模型已按约定标好的片段：补上统一样式（模型给的是 <span class="target-word">）
+        out = out.replace(
+            /<span[^>]*class="[^"]*target-word[^"]*"[^>]*data-word="([^"]*)"[^>]*>([\s\S]*?)<\/span>/gi,
+            (_m, word, inner) => styleOpen(word, inner)
+        );
+        // 兼容 data-word 写在 class 前面的情况
+        out = out.replace(
+            /<span[^>]*data-word="([^"]*)"[^>]*class="[^"]*target-word[^"]*"[^>]*>([\s\S]*?)<\/span>/gi,
+            (_m, word, inner) => styleOpen(word, inner)
+        );
+
+        // 已标出的生词集合（小写）
+        const marked = new Set();
+        out.replace(/<strong[^>]*data-word="([^"]*)"/gi, (_m, w) => { marked.add(String(w).toLowerCase()); return _m; });
+
+        // ② 兜底：模型漏标的词，按「词典释义分词 + 译文语境」找回
+        this.currentQueue.forEach(item => {
+            const key = item.word.toLowerCase();
+            if (marked.has(key)) return;
+
+            const zhText = out.replace(/<[^>]+>/g, ""); // 已标部分的纯文本
+            const candidates = this._zhCandidates(item, zhText);
+            for (const cand of candidates) {
+                const escaped = cand.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+                // 只在未标记的纯文本区域替换，避免破坏已有标签
+                const re = new RegExp(`(${escaped})(?![^<]*>)`);
+                if (re.test(out)) {
+                    out = out.replace(re, (_m, hit) => styleOpen(item.word, hit));
+                    marked.add(key);
+                    break;
+                }
+            }
+        });
+
+        return out;
+    },
+
+    // 为一个生词生成「可能出现在译文里的中文候选」，按可信度排序
+    _zhCandidates(item, zhText) {
+        const list = [];
+        const push = (s) => {
+            const v = String(s || "").trim();
+            if (v && v.length >= 1 && !list.includes(v)) list.push(v);
+        };
+
+        // 1) 词典释义按分号/逗号拆开，取最短的核心词（「承认；告知已收到；感谢」→ 承认）
+        const parts = String(item.translation || "")
+            .split(/[；;，,、\/]/)
+            .map(s => s.replace(/[（(].*?[）)]/g, "").trim())
+            .filter(Boolean);
+        // 去掉「的」「地」结尾，中文译文里常写成"含糊不清的邮件"
+        const stems = new Set();
+        parts.forEach(p => {
+            push(p);
+            const stem = p.replace(/[的地]$/, "");
+            if (stem) stems.add(stem);
+        });
+        stems.forEach(push);
+        // 2) 英文原词（译文偶尔保留英文）
+        push(item.word);
+
+        // 3) 按是否真的出现在译文里重新排序，出现过的优先
+        return list.sort((a, b) => {
+            const inA = zhText.includes(a) ? 0 : 1;
+            const inB = zhText.includes(b) ? 0 : 1;
+            if (inA !== inB) return inA - inB;
+            return a.length - b.length; // 短的去匹配更准
+        }).filter(s => zhText.includes(s));
+    },
+
     // 阅读页来源标识：让「AI 生成」和「本地兜底」一眼可分辨。
     // 这是产品可信度的一部分——用户不该在不知情的情况下把兜底课文当成 AI 输出。
     renderStorySourceBadge() {
@@ -389,17 +472,13 @@ const App = {
         document.getElementById("story-body").innerHTML = story.story;
         this.renderStorySourceBadge();
 
-        // 处理中文译文：在背诵词汇的中文翻译处加粗并标注英文
+        // 处理中文译文：把每个生词在译文里对应的中文片段标绿
         let translationHtml = story.translation || "";
-        // 译文缺失时给出明确提示，而不是留一片空白
         if (!translationHtml.trim() || story._translationMissing) {
+            // 译文缺失时给出明确提示，而不是留一片空白
             translationHtml = `<span class="text-rose-600">本篇译文缺失（模型未返回中文翻译），请点「清空并重新背词」重新生成一次。</span>`;
         } else {
-            this.currentQueue.forEach(item => {
-                const zh = item.translation.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-                const regex = new RegExp(zh, 'g');
-                translationHtml = translationHtml.replace(regex, `<strong class="text-emerald-700">${item.translation}</strong>（${item.word}）`);
-            });
+            translationHtml = this.markTranslationWords(translationHtml);
         }
         document.getElementById("story-translation").innerHTML = translationHtml;
 

@@ -112,6 +112,15 @@ function _buildStoryMessages(words, difficulty, budget) {
 
 2) 短文的标准简体中文翻译：通顺、自然、符合中文表达习惯，读起来像人话，禁止逐词直译的翻译腔。翻译必须是完整的整篇译文，不能省略。
 
+   【译文里必须标出每个目标词对应的中文片段】——这一步是产品的核心，不能省略：
+   - 在译文中，把每个目标词「在该句语境下的实际中文说法」用 <span class="target-word" data-word="WORD">中文片段</span> 包裹。
+   - 包裹的必须是译文中真实存在的那几个字，且只包住表达该词义的最小片段，不要包整句。
+   - 同一句话里有多个目标词，就各自包一层。
+   - 中文说法要跟着语境走，不要照抄词典释义。例如目标词 Advocate 在 "She is a strong advocate for clear communication" 里译成"提倡者"，
+     那就要包住"提倡者"三个字，而不是词典里的"提倡；主张；拥护"。
+   - 译文中每个目标词都必须有且只有一处被包裹（该词在本篇译文中出现几次就包几次）。
+   - 除目标词外，译文其他文字保持纯文本，不要加任何其他 HTML 标签。
+
 3) 每个目标词一道「句子挖空」题：一句自然的英文例句，在目标词该出现的位置用 _____ 占位；给出 3 个干扰项（拼写/词义易混淆的雅思词汇，不能是正确答案），以及每个选项的简体中文释义。
 
 ${DIFFICULTY_PROMPT[difficulty] || DIFFICULTY_PROMPT.intermediate}
@@ -122,7 +131,7 @@ ${boundaryLines}
 {
   "title": "短文标题（4词以内）",
   "story": "HTML 字符串，目标词用 <span class=\\"target-word\\" data-word=\\"WORD\\">WORD</span> 高亮",
-  "translation": "整篇中文翻译（必须有内容，不能为空）",
+  "translation": "整篇中文翻译（必须有内容，不能为空）；每个目标词在译文中对应的中文片段用 <span class=\\"target-word\\" data-word=\\"WORD\\">中文</span> 包裹",
   "questions": [
     {
       "target_word": "Word",
