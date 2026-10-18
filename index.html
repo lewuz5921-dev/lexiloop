@@ -61,6 +61,11 @@
 
             <!-- 用户菜单（登录态/游客态由 JS 动态渲染） -->
             <div id="user-menu-slot" class="flex items-center space-x-2"></div>
+            <!-- 演示模式开关：断网/弱网时保证全流程可演示（状态由 DemoMode.syncUI 渲染） -->
+            <button id="demo-mode-btn" onclick="DemoMode.toggle()" title="开启后不调用 AI，改用本地词库例句拼合课文，保证演示不中断"
+                class="text-xs font-semibold px-3 py-2 rounded-xl border border-slate-200 bg-white text-slate-500 hover:bg-slate-50 transition flex items-center space-x-1.5">
+                <i class="fa-solid fa-circle-play"></i><span>演示模式</span>
+            </button>
         </div>
     </header>
 
@@ -166,6 +171,7 @@
                     <p class="text-slate-500 text-sm" id="loading-desc">
                         AI 正在将你刚积累的 <span class="text-indigo-600 font-bold" id="loading-words-count">8个单词</span> 组装进一段生活画面感极强、句意简单的短文中，助你秒懂其用法。
                     </p>
+                    <p class="hidden text-xs font-semibold text-amber-600" id="loading-hint"></p>
                 </div>
                 <div class="bg-white p-4 rounded-2xl border border-slate-100 shadow-sm">
                     <h4 class="text-xs font-semibold text-slate-400 uppercase tracking-widest mb-3">本次融汇生词</h4>
@@ -179,6 +185,7 @@
             <div class="flex flex-col md:flex-row md:items-center justify-between gap-4 border-b border-slate-100 pb-6">
                 <div>
                     <h2 id="story-title" class="text-2xl md:text-3xl font-bold text-slate-900 serif-font">The Unseen Catalyst</h2>
+                    <div id="story-source-badge" class="hidden mt-2"></div>
                 </div>
                 <div class="flex items-center space-x-2 self-start md:self-auto">
                     <button onclick="speakEntireStory()" class="bg-indigo-50 text-indigo-700 hover:bg-indigo-100 px-4 py-2 rounded-xl transition text-sm font-medium flex items-center space-x-2">

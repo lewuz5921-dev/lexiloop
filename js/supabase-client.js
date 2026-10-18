@@ -71,8 +71,11 @@ const supabase = {
                 });
 
                 if (!res.ok) {
-                    // refresh token 也过期了，清除 session
-                    this._setSession(null);
+                    // 只有「明确无效」的 4xx（如 401/400 invalid refresh token）才清会话；
+                    // 5xx 或网关错误属于服务端临时故障，清掉等于把用户踢下线
+                    if (res.status >= 400 && res.status < 500) {
+                        this._setSession(null);
+                    }
                     return null;
                 }
 
@@ -80,8 +83,8 @@ const supabase = {
                 this._setSession(data);
                 return data;
             } catch (e) {
-                console.error("Token refresh failed:", e);
-                this._setSession(null);
+                // 网络异常 ≠ 凭证失效：保留本地会话，等下次网络恢复再刷新
+                console.error("Token refresh failed (网络异常，保留本地会话):", e?.message || e);
                 return null;
             } finally {
                 this._refreshing = null;
@@ -172,13 +175,24 @@ const supabase = {
             const session = supabase._getSession();
             if (!session?.access_token) return { data: { session: null }, error: null };
 
-            // 先尝试用现有 token 验证
-            const res = await fetch(`${SUPABASE_URL}/auth/v1/user`, {
-                headers: {
-                    "apikey": SUPABASE_ANON_KEY,
-                    "Authorization": `Bearer ${session.access_token}`,
-                },
-            });
+            // 先尝试用现有 token 验证。
+            // ⚠️ 关键修复：网络失败（DNS 不通/断网/代理抖动）时 fetch 会抛异常，
+            // 原实现没有 try/catch，异常直接冒泡；即便被上层吞掉，下面也会走到
+            // _setSession(null) 把本地登录态清空 —— 用户表现为「一开始还好，后来自动退出登录」。
+            // 正确做法：分不清是「token 失效」还是「网络不通」时，保留本地会话。
+            let res;
+            try {
+                res = await fetch(`${SUPABASE_URL}/auth/v1/user`, {
+                    headers: {
+                        "apikey": SUPABASE_ANON_KEY,
+                        "Authorization": `Bearer ${session.access_token}`,
+                    },
+                });
+            } catch (e) {
+                // 网络层失败：保留会话，返回本地缓存的用户信息
+                console.warn("会话校验请求失败（网络异常），沿用本地会话：", e?.message || e);
+                return { data: { session }, error: null };
+            }
 
             if (res.ok) {
                 const user = await res.json();
@@ -189,22 +203,30 @@ const supabase = {
             if (res.status === 401 && session.refresh_token) {
                 const newSession = await supabase._refreshSession();
                 if (newSession) {
-                    const userRes = await fetch(`${SUPABASE_URL}/auth/v1/user`, {
-                        headers: {
-                            "apikey": SUPABASE_ANON_KEY,
-                            "Authorization": `Bearer ${newSession.access_token}`,
-                        },
-                    });
-                    if (userRes.ok) {
-                        const user = await userRes.json();
-                        return { data: { session: { ...newSession, user } }, error: null };
+                    try {
+                        const userRes = await fetch(`${SUPABASE_URL}/auth/v1/user`, {
+                            headers: {
+                                "apikey": SUPABASE_ANON_KEY,
+                                "Authorization": `Bearer ${newSession.access_token}`,
+                            },
+                        });
+                        if (userRes.ok) {
+                            const user = await userRes.json();
+                            return { data: { session: { ...newSession, user } }, error: null };
+                        }
+                    } catch (e) {
+                        // 刷新成功但校验请求网络失败：仍然保留刷新后的会话
+                        return { data: { session: newSession }, error: null };
                     }
                 }
+                // 401 已明确说明凭证无效 → 此时清空才是正确的
+                supabase._setSession(null);
+                return { data: { session: null }, error: null };
             }
 
-            // refresh 也失败了
-            supabase._setSession(null);
-            return { data: { session: null }, error: null };
+            // 其他非 401 状态（5xx / 网关错误）：服务端问题，不代表用户登录失效 → 保留会话
+            console.warn("会话校验返回异常状态", res.status, "，保留本地会话");
+            return { data: { session }, error: null };
         },
 
         async getUser() {

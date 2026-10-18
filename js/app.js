@@ -2,6 +2,42 @@
 // 主应用逻辑：UI 控制、页面切换、事件绑定
 // ============================================================
 
+// 演示模式（Offline Demo）：面试/录屏时的兜底开关。
+// 开启后不发起任何网络请求，直接用本地词库例句拼合课文，
+// 保证「筛选生词 → 阅读 → 完形填空 → 掌握报告」全流程不会因为断网而中断。
+// 注意：开启后阅读页会明确标注「未调用 AI」，绝不把兜底结果伪装成模型输出。
+// 开关方式：欢迎页右上角的「演示模式」按钮，或控制台执行 DemoMode.toggle()
+const DemoMode = {
+    KEY: "lexiloop_demo_mode",
+    on() {
+        try { return localStorage.getItem(this.KEY) === "1"; } catch { return false; }
+    },
+    set(flag) {
+        try { localStorage.setItem(this.KEY, flag ? "1" : "0"); } catch {}
+        this.syncUI();
+        return flag;
+    },
+    toggle() {
+        const next = !this.on();
+        this.set(next);
+        if (typeof showStatusToast === "function") {
+            showStatusToast(next ? "已开启演示模式：不调用 AI，使用本地例句课文" : "已关闭演示模式：恢复 AI 生成", "info");
+        }
+        return next;
+    },
+    syncUI() {
+        const btn = document.getElementById("demo-mode-btn");
+        if (!btn) return;
+        if (this.on()) {
+            btn.className = "text-xs font-semibold px-3 py-2 rounded-xl border border-amber-300 bg-amber-50 text-amber-700 hover:bg-amber-100 transition flex items-center space-x-1.5";
+            btn.innerHTML = `<i class="fa-solid fa-circle-play"></i><span>演示模式 · 开</span>`;
+        } else {
+            btn.className = "text-xs font-semibold px-3 py-2 rounded-xl border border-slate-200 bg-white text-slate-500 hover:bg-slate-50 transition flex items-center space-x-1.5";
+            btn.innerHTML = `<i class="fa-solid fa-circle-play"></i><span>演示模式</span>`;
+        }
+    },
+};
+
 const App = {
     // 运行状态
     currentQueue: [],
@@ -47,6 +83,7 @@ const App = {
         const diffSelect = document.getElementById("difficulty-select");
         if (diffSelect) diffSelect.value = this.difficulty;
         this.updateWelcomeDesc();
+        DemoMode.syncUI();
 
         // 检查登录/游客状态（不阻塞本地词库使用）
         let authState = "none";
@@ -209,6 +246,21 @@ const App = {
     async triggerStoryGeneration() {
         showScreen("loading-screen");
         this.updateLoadingDesc();
+        this.setLoadingHint("");
+
+        // 演示模式：跳过网络请求，直接用词库例句拼合。
+        // 用途是面试/录屏时保证流程绝不断——但阅读页会明确标注「未调用 AI」，不伪装成模型输出。
+        if (DemoMode.on()) {
+            await new Promise(r => setTimeout(r, 600));
+            this.fallbackStoryGeneration({ text: "演示模式已开启，不调用 AI" });
+            return;
+        }
+
+        // 断网预检：浏览器的 online 标志为 false 时不必干等超时，立刻降级
+        if (typeof navigator !== "undefined" && navigator.onLine === false) {
+            this.fallbackStoryGeneration({ text: "设备当前处于离线状态" });
+            return;
+        }
 
         const grid = document.getElementById("loading-words-grid");
         grid.innerHTML = "";
@@ -227,7 +279,7 @@ const App = {
             // 此时降级到本地词库 example 挖空，保证「考的 = 背的」。
             if (!this.storyContainsTargetWords()) {
                 console.warn("AI 故事与目标词不匹配，降级到本地词库");
-                this.fallbackStoryGeneration();
+                this.fallbackStoryGeneration({ text: "模型漏掉了本轮目标词" });
                 return;
             }
             this.renderStory();
@@ -249,6 +301,19 @@ const App = {
         return hitCount >= Math.ceil(targetWords.length / 2);
     },
 
+    // 加载页副提示：重试过程中如实展示「正在重试」，减少用户的等待焦虑
+    setLoadingHint(text) {
+        const el = document.getElementById("loading-hint");
+        if (!el) return;
+        if (!text) {
+            el.classList.add("hidden");
+            el.textContent = "";
+        } else {
+            el.classList.remove("hidden");
+            el.textContent = text;
+        }
+    },
+
     // 根据当前难度动态刷新加载页文案（词量随难度阶梯变化）
     updateLoadingDesc() {
         const el = document.getElementById("loading-desc");
@@ -265,16 +330,46 @@ const App = {
         }
     },
 
-    fallbackStoryGeneration() {
-        showStatusToast("AI 服务暂时不可用，使用本地词库生成复习内容...", "info");
+    fallbackStoryGeneration(reason) {
+        // 降级不是静默失败：把「为什么降级」如实告诉用户，并说明降级后仍能做什么。
+        // 之前的实现只弹一句「AI 暂不可用」，用户会以为整个产品坏了。
+        const err = reason || StoryEngine.lastError;
+        const why = err?.text ? `（${err.text}）` : "";
+        showStatusToast(`AI 短文暂不可用${why}，已切换为本词典例句拼合的备用课文`, "info");
 
-        const wordsUsed = this.currentQueue.map(w => w.word);
         const wordTranslations = this.currentQueue.map(w => `${w.word}(${w.translation})`).join("、");
 
         const tierLabel = { beginner: "初级 · 极简轻量", intermediate: "中级 · 标准语境", advanced: "高级 · 学术进阶" }[this.difficulty] || "标准";
-        let simulatedParagraph = `<p>以下是你本次需要学习的 <strong>${this.batchSize} 个雅思核心词汇</strong>（难度：${tierLabel}）：</p><p>${wordTranslations}</p><p>AI 故事生成服务当前不可用，但你仍然可以通过下方的完形填空挑战来测试这些词汇。请点击下方按钮开始测试。</p>`;
+        // 兜底策略按「情境成篇」做，而不是罗列词表：
+        // 每个目标词用它自己的例句，串成一段带场景提示的阅读材料，
+        // 保证「考的 = 背的」，同时阅读页仍是一段可读的英文，不是一份清单。
+        // 例句里目标词位置用 _____ 占位。回填时要解决两件事：
+        // 1) 保留原句大小写（句首大写 / 句中保持原形），不能把 "to Deteriorate" 硬冠大写；
+        // 2) 用 <span class="target-word"> 包住，才能复用点击查词与高亮样式。
+        const storyLines = this.currentQueue.map(item => {
+            const sentence = item.example || "";
+            const escaped = item.word.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+            const attr = _escapeAttr(item.word);
+            const open = (text) => `<span class="target-word" data-word="${attr}">${text}</span>`;
 
-        let simulatedTranslation = `本次学习词汇列表：${wordTranslations}。AI 故事生成服务暂不可用，但你仍然可以进行完形填空挑战。`;
+            if (!sentence || !sentence.includes("_____")) {
+                return `${open(_escapeAttr(item.word))} means ${_escapeAttr(item.definition || "")}.`;
+            }
+            // 找出句子中目标词实际出现的样子（允许词形变化，如 Deteriorate / deteriorate）
+            const surfaceMatch = sentence.match(new RegExp(`${escaped}[a-z]*`, "i"));
+            const surface = surfaceMatch ? surfaceMatch[0] : item.word;
+
+            // 把占位符替换为高亮后的目标词
+            return _escapeAttr(sentence)
+                .replace("_____", open(_escapeAttr(surface)));
+        });
+
+        const simulatedParagraph =
+            `<p class="text-xs font-semibold text-amber-600 mb-3"><i class="fa-solid fa-circle-info"></i> 备用课文 · 由本词典例句拼合（AI 暂不可用，词义与例句均来自由你逐词确认过的本地词库）</p>` +
+            `<p>These are the ${this.currentQueue.length} words you picked today. Read each sentence carefully — the situation is something you meet every day, so the word will stay with you.</p>` +
+            storyLines.map(s => `<p>${s}</p>`).join("");
+
+        const simulatedTranslation = `${wordTranslations}。本课由词库例句拼合而成，每个词都在一句日常语境中给出。`;
 
         const fallbackQuestions = this.currentQueue.map(item => {
             const simWords = Vocabulary.getSimilarWords(item.word, this.distractorCount());
@@ -301,13 +396,28 @@ const App = {
         });
 
         StoryEngine.generatedStory = {
-            title: "Backup Session",
+            title: "Backup Session · 词库例句课文",
             story: simulatedParagraph,
             translation: simulatedTranslation,
             questions: fallbackQuestions,
         };
+        StorySource.set("local");
 
         this.renderStory();
+    },
+
+    // 阅读页来源标识：让「AI 生成」和「本地兜底」一眼可分辨。
+    // 这是产品可信度的一部分——用户不该在不知情的情况下把兜底课文当成 AI 输出。
+    renderStorySourceBadge() {
+        const el = document.getElementById("story-source-badge");
+        if (!el) return;
+        if (StorySource.isLocal()) {
+            el.className = "mt-2 inline-flex items-center gap-1.5 text-xs font-semibold text-amber-700 bg-amber-50 border border-amber-200 px-3 py-1 rounded-full";
+            el.innerHTML = `<i class="fa-solid fa-circle-exclamation"></i><span>备用课文 · 词库例句拼合（未调用 AI）</span>`;
+        } else {
+            el.className = "mt-2 inline-flex items-center gap-1.5 text-xs font-semibold text-emerald-700 bg-emerald-50 border border-emerald-200 px-3 py-1 rounded-full";
+            el.innerHTML = `<i class="fa-solid fa-wand-magic-sparkles"></i><span>由 AI 依据本轮生词即时生成</span>`;
+        }
     },
 
     renderStory() {
@@ -315,6 +425,7 @@ const App = {
         const story = StoryEngine.generatedStory;
         document.getElementById("story-title").innerText = story.title;
         document.getElementById("story-body").innerHTML = story.story;
+        this.renderStorySourceBadge();
 
         // 处理中文译文：在背诵词汇的中文翻译处加粗并标注英文
         let translationHtml = story.translation;
@@ -610,6 +721,16 @@ const App = {
 };
 
 // === 全局快捷函数 ===
+// HTML 属性/文本转义（兜底课文里要拼接词条字段，避免引号打断标签）
+function _escapeAttr(str) {
+    return String(str == null ? "" : str)
+        .replace(/&/g, "&amp;")
+        .replace(/</g, "&lt;")
+        .replace(/>/g, "&gt;")
+        .replace(/"/g, "&quot;")
+        .replace(/'/g, "&#39;");
+}
+
 function showScreen(screenId) {
     const screens = ["welcome-screen", "testing-screen", "loading-screen", "reading-screen", "challenge-screen", "challenge-result-screen"];
     screens.forEach(s => {

@@ -17,12 +17,39 @@ const Auth = {
             this.currentUser = null;
             return "guest";
         }
-        const { data: { session } } = await supabase.auth.getSession();
-        if (session?.user) {
-            this.currentUser = session.user;
+        // 本地已有可用的登录会话时，先按已登录处理，不必等网络。
+        // 断网时 getSession 可能长时间挂起，会把整个应用卡在「数据加载中」，
+        // 这是弱网/异地网络环境下最容易踩的坑。
+        const localSession = this._localSession();
+        if (localSession?.user) {
+            this.currentUser = localSession.user;
             return "user";
         }
+        try {
+            const timeout = new Promise((_, reject) => setTimeout(() => reject(new Error("session timeout")), 6000));
+            const { data: { session } } = await Promise.race([supabase.auth.getSession(), timeout]);
+            if (session?.user) {
+                this.currentUser = session.user;
+                return "user";
+            }
+        } catch (e) {
+            // 拿不到会话（断网/超时）→ 退化为游客，让用户仍能进入主流程
+            console.warn("获取云端会话失败，按游客模式继续：", e?.message || e);
+            this.isGuest = true;
+            this.currentUser = null;
+            return "guest";
+        }
         return "none";
+    },
+
+    // 从 localStorage 读取本地缓存的会话（不发起网络请求）
+    _localSession() {
+        try {
+            const raw = localStorage.getItem("sb-auth-token");
+            if (!raw) return null;
+            const parsed = JSON.parse(raw);
+            return parsed?.currentSession || parsed?.session || null;
+        } catch { return null; }
     },
 
     // 进入游客模式（不连云端，进度仅存本机 localStorage）
