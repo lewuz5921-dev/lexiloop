@@ -2,42 +2,6 @@
 // 主应用逻辑：UI 控制、页面切换、事件绑定
 // ============================================================
 
-// 演示模式（Offline Demo）：面试/录屏时的兜底开关。
-// 开启后不发起任何网络请求，直接用本地词库例句拼合课文，
-// 保证「筛选生词 → 阅读 → 完形填空 → 掌握报告」全流程不会因为断网而中断。
-// 注意：开启后阅读页会明确标注「未调用 AI」，绝不把兜底结果伪装成模型输出。
-// 开关方式：欢迎页右上角的「演示模式」按钮，或控制台执行 DemoMode.toggle()
-const DemoMode = {
-    KEY: "lexiloop_demo_mode",
-    on() {
-        try { return localStorage.getItem(this.KEY) === "1"; } catch { return false; }
-    },
-    set(flag) {
-        try { localStorage.setItem(this.KEY, flag ? "1" : "0"); } catch {}
-        this.syncUI();
-        return flag;
-    },
-    toggle() {
-        const next = !this.on();
-        this.set(next);
-        if (typeof showStatusToast === "function") {
-            showStatusToast(next ? "已开启演示模式：不调用 AI，使用本地例句课文" : "已关闭演示模式：恢复 AI 生成", "info");
-        }
-        return next;
-    },
-    syncUI() {
-        const btn = document.getElementById("demo-mode-btn");
-        if (!btn) return;
-        if (this.on()) {
-            btn.className = "text-xs font-semibold px-3 py-2 rounded-xl border border-amber-300 bg-amber-50 text-amber-700 hover:bg-amber-100 transition flex items-center space-x-1.5";
-            btn.innerHTML = `<i class="fa-solid fa-circle-play"></i><span>演示模式 · 开</span>`;
-        } else {
-            btn.className = "text-xs font-semibold px-3 py-2 rounded-xl border border-slate-200 bg-white text-slate-500 hover:bg-slate-50 transition flex items-center space-x-1.5";
-            btn.innerHTML = `<i class="fa-solid fa-circle-play"></i><span>演示模式</span>`;
-        }
-    },
-};
-
 const App = {
     // 运行状态
     currentQueue: [],
@@ -83,7 +47,6 @@ const App = {
         const diffSelect = document.getElementById("difficulty-select");
         if (diffSelect) diffSelect.value = this.difficulty;
         this.updateWelcomeDesc();
-        DemoMode.syncUI();
 
         // 检查登录/游客状态（不阻塞本地词库使用）
         let authState = "none";
@@ -99,18 +62,9 @@ const App = {
             return;
         }
 
-        if (authState === "guest") {
-            // 游客模式：从本机读取进度，不连云端
-            Vocabulary.loadGuestProgress();
-            this.renderUserMenu("guest");
-        } else {
-            // 已登录：监听会话变化 + 云端同步
-            Auth.onAuthStateChange((user) => {
-                if (!user) window.location.href = "login.html";
-            });
-            Vocabulary.syncProgress();
-            this.renderUserMenu("user");
-        }
+        // 本机模式：从 localStorage 读取进度（云端账号已停用）
+        Vocabulary.loadGuestProgress();
+        this.renderUserMenu("guest");
 
         this.updateStatsUI();
         this.updateWelcomeUI();
@@ -244,48 +198,46 @@ const App = {
 
     // === 故事生成 ===
     async triggerStoryGeneration() {
+        const box = document.getElementById("story-error-box");
+        if (box) box.classList.add("hidden");
+
+        // 没填 Key 就别装了：直接引导去填，不发起无效请求
+        if (typeof AIKey !== "undefined" && !AIKey.has()) {
+            StoryEngine.lastError = { kind: "auth", text: "尚未填写 DeepSeek API Key" };
+            this.showStoryError();
+            showStatusToast("请先填写 DeepSeek API Key", "info");
+            return;
+        }
+
         showScreen("loading-screen");
         this.updateLoadingDesc();
         this.setLoadingHint("");
 
-        // 演示模式：跳过网络请求，直接用词库例句拼合。
-        // 用途是面试/录屏时保证流程绝不断——但阅读页会明确标注「未调用 AI」，不伪装成模型输出。
-        if (DemoMode.on()) {
-            await new Promise(r => setTimeout(r, 600));
-            this.fallbackStoryGeneration({ text: "演示模式已开启，不调用 AI" });
-            return;
-        }
-
-        // 断网预检：浏览器的 online 标志为 false 时不必干等超时，立刻降级
-        if (typeof navigator !== "undefined" && navigator.onLine === false) {
-            this.fallbackStoryGeneration({ text: "设备当前处于离线状态" });
-            return;
-        }
-
         const grid = document.getElementById("loading-words-grid");
-        grid.innerHTML = "";
-        this.currentQueue.forEach(item => {
-            const el = document.createElement("span");
-            el.className = "bg-indigo-50 border border-indigo-100 text-indigo-700 text-xs px-3 py-1.5 rounded-full font-semibold flex items-center space-x-1";
-            el.innerHTML = `<i class="fa-solid fa-bookmark text-[10px]"></i> <span>${item.word}</span>`;
-            grid.appendChild(el);
-        });
+        if (grid) {
+            grid.innerHTML = "";
+            this.currentQueue.forEach(item => {
+                const el = document.createElement("span");
+                el.className = "bg-indigo-50 border border-indigo-100 text-indigo-700 text-xs px-3 py-1.5 rounded-full font-semibold flex items-center space-x-1";
+                el.innerHTML = `<i class="fa-solid fa-bookmark text-[10px]"></i> <span>${item.word}</span>`;
+                grid.appendChild(el);
+            });
+        }
 
         try {
             await StoryEngine.generateStory(this.currentQueue, this.difficulty);
-            // 防御：校验 AI 故事是否真的包含本轮目标词。
-            // 线上函数可能「漏词/换词」（返回它自己编的简单词），
-            // 若故事与目标生词对不上，完形填空考的就不是用户要背的词，
-            // 此时降级到本地词库 example 挖空，保证「考的 = 背的」。
+            // 校验 AI 故事是否真的包含本轮目标词：
+            // 模型偶尔漏词，导致"读的故事"和"考的单词"对不上，必须拦下
             if (!this.storyContainsTargetWords()) {
-                console.warn("AI 故事与目标词不匹配，降级到本地词库");
-                this.fallbackStoryGeneration({ text: "模型漏掉了本轮目标词" });
+                console.warn("AI 故事未覆盖足够目标词，判定为无效输出");
+                StoryEngine.lastError = { kind: "bad_payload", text: "模型漏掉了本轮目标词" };
+                this.showStoryError();
                 return;
             }
             this.renderStory();
         } catch (err) {
             console.error("Story generation failed:", err);
-            this.fallbackStoryGeneration();
+            this.showStoryError();
         }
     },
 
@@ -330,80 +282,90 @@ const App = {
         }
     },
 
-    fallbackStoryGeneration(reason) {
-        // 降级不是静默失败：把「为什么降级」如实告诉用户，并说明降级后仍能做什么。
-        // 之前的实现只弹一句「AI 暂不可用」，用户会以为整个产品坏了。
-        const err = reason || StoryEngine.lastError;
-        const why = err?.text ? `（${err.text}）` : "";
-        showStatusToast(`AI 短文暂不可用${why}，已切换为本词典例句拼合的备用课文`, "info");
+    // AI 生成失败时的处理：不再伪装成一篇"备用课文"。
+    // 你要的是 AI 一定能用，那么失败就应该明确告诉你「哪一步错了、怎么修」，
+    // 而不是给你一段读着还行、但根因被藏起来的内容。
+    showStoryError() {
+        const err = StoryEngine.lastError || { kind: "unknown", text: "未知错误" };
+        showScreen("welcome-screen");
 
-        const wordTranslations = this.currentQueue.map(w => `${w.word}(${w.translation})`).join("、");
-
-        const tierLabel = { beginner: "初级 · 极简轻量", intermediate: "中级 · 标准语境", advanced: "高级 · 学术进阶" }[this.difficulty] || "标准";
-        // 兜底策略按「情境成篇」做，而不是罗列词表：
-        // 每个目标词用它自己的例句，串成一段带场景提示的阅读材料，
-        // 保证「考的 = 背的」，同时阅读页仍是一段可读的英文，不是一份清单。
-        // 例句里目标词位置用 _____ 占位。回填时要解决两件事：
-        // 1) 保留原句大小写（句首大写 / 句中保持原形），不能把 "to Deteriorate" 硬冠大写；
-        // 2) 用 <span class="target-word"> 包住，才能复用点击查词与高亮样式。
-        const storyLines = this.currentQueue.map(item => {
-            const sentence = item.example || "";
-            const escaped = item.word.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-            const attr = _escapeAttr(item.word);
-            const open = (text) => `<span class="target-word" data-word="${attr}">${text}</span>`;
-
-            if (!sentence || !sentence.includes("_____")) {
-                return `${open(_escapeAttr(item.word))} means ${_escapeAttr(item.definition || "")}.`;
-            }
-            // 找出句子中目标词实际出现的样子（允许词形变化，如 Deteriorate / deteriorate）
-            const surfaceMatch = sentence.match(new RegExp(`${escaped}[a-z]*`, "i"));
-            const surface = surfaceMatch ? surfaceMatch[0] : item.word;
-
-            // 把占位符替换为高亮后的目标词
-            return _escapeAttr(sentence)
-                .replace("_____", open(_escapeAttr(surface)));
-        });
-
-        const simulatedParagraph =
-            `<p class="text-xs font-semibold text-amber-600 mb-3"><i class="fa-solid fa-circle-info"></i> 备用课文 · 由本词典例句拼合（AI 暂不可用，词义与例句均来自由你逐词确认过的本地词库）</p>` +
-            `<p>These are the ${this.currentQueue.length} words you picked today. Read each sentence carefully — the situation is something you meet every day, so the word will stay with you.</p>` +
-            storyLines.map(s => `<p>${s}</p>`).join("");
-
-        const simulatedTranslation = `${wordTranslations}。本课由词库例句拼合而成，每个词都在一句日常语境中给出。`;
-
-        const fallbackQuestions = this.currentQueue.map(item => {
-            const simWords = Vocabulary.getSimilarWords(item.word, this.distractorCount());
-            const options = [item.word, ...simWords.map(w => w.word)];
-            const transMap = {};
-            transMap[item.word] = item.translation;
-            simWords.forEach(w => { transMap[w.word] = w.translation; });
-            shuffleArray(options);
-            const optionsTrans = options.map(opt => transMap[opt] || "???");
-
-            // 使用词库 example 句子挖空；若缺失则 fallback 到简单释义句
-            let sentence = item.example;
-            if (!sentence || !sentence.includes("_____")) {
-                sentence = `Choose the word that means "${item.definition}" to fill the blank: The correct answer is _____.`;
-            }
-
-            return {
-                target_word: item.word,
-                cloze_sentence: sentence,
-                options: options,
-                options_translation: optionsTrans,
-                correct_answer: item.word,
-            };
-        });
-
-        StoryEngine.generatedStory = {
-            title: "Backup Session · 词库例句课文",
-            story: simulatedParagraph,
-            translation: simulatedTranslation,
-            questions: fallbackQuestions,
+        const guides = {
+            auth: {
+                title: "API Key 有问题",
+                detail: "没有填写 Key，或 Key 无效/已过期。",
+                action: "点击右上角「AI 设置」重新填写 Key（sk- 开头），保存时会自动验证。",
+            },
+            billing: {
+                title: "DeepSeek 账户余额不足",
+                detail: "接口返回余额或权限错误。",
+                action: "去 platform.deepseek.com 充值后重试。",
+            },
+            network: {
+                title: "网络连不上 api.deepseek.com",
+                detail: "请求根本没发出去，通常是 DNS 解析失败或代理未开启。",
+                action: "检查网络/代理，浏览器直接打开 https://api.deepseek.com 看是否可达。",
+            },
+            timeout: {
+                title: "生成超时",
+                detail: "45 秒内没有返回结果，可能是网络太慢或模型负载高。",
+                action: "点「重试」再试一次；若持续超时，检查代理速度。",
+            },
+            rate: {
+                title: "请求过于频繁",
+                detail: "短时间内调用次数超限。",
+                action: "等 30 秒再点重试。",
+            },
+            bad_payload: {
+                title: "模型返回内容无法解析",
+                detail: "模型没有按要求返回 JSON（偶发）。",
+                action: "点「重试」，换一批词通常就好。",
+            },
         };
-        StorySource.set("local");
+        const g = guides[err.kind] || {
+            title: "AI 生成失败",
+            detail: err.text || "未知错误",
+            action: "点「重试」；若反复失败，查看浏览器控制台的 [deepseek] 日志。",
+        };
 
-        this.renderStory();
+        const box = document.getElementById("story-error-box");
+        if (!box) return;
+        box.innerHTML = `
+            <div class="max-w-lg mx-auto bg-white rounded-3xl border border-slate-200 shadow-sm p-8 space-y-5">
+                <div class="flex items-start gap-4">
+                    <div class="w-11 h-11 rounded-2xl bg-rose-50 text-rose-500 flex items-center justify-center flex-shrink-0">
+                        <i class="fa-solid fa-triangle-exclamation text-lg"></i>
+                    </div>
+                    <div class="space-y-1">
+                        <h3 class="text-lg font-bold text-slate-900">${g.title}</h3>
+                        <p class="text-sm text-slate-600 leading-relaxed">${g.detail}</p>
+                    </div>
+                </div>
+                <div class="bg-slate-50 rounded-2xl p-4 space-y-1.5">
+                    <div class="text-xs font-semibold text-slate-500 uppercase tracking-wider">怎么修</div>
+                    <p class="text-sm text-slate-700 leading-relaxed">${g.action}</p>
+                </div>
+                <div class="text-xs text-slate-400 font-mono break-all">${(err.raw || err.text || "").slice(0, 200)}</div>
+                <div class="flex items-center gap-2">
+                    <button onclick="App.retryStoryGeneration()" class="flex-1 bg-indigo-600 hover:bg-indigo-700 text-white font-semibold py-3 rounded-xl transition text-sm">
+                        <i class="fa-solid fa-rotate-right mr-1"></i> 重试
+                    </button>
+                    <button onclick="openAIKeyModal()" class="px-5 py-3 rounded-xl border border-slate-200 text-slate-700 hover:bg-slate-50 transition text-sm font-medium">
+                        检查 Key
+                    </button>
+                </div>
+            </div>`;
+        box.classList.remove("hidden");
+    },
+
+    // 重试：保留当前队列，直接再生成一次
+    retryStoryGeneration() {
+        const box = document.getElementById("story-error-box");
+        if (box) box.classList.add("hidden");
+        if (!this.currentQueue || this.currentQueue.length === 0) {
+            showStatusToast("生词队列已清空，请重新开始背词", "info");
+            return;
+        }
+        this.triggerStoryGeneration();
     },
 
     // 阅读页来源标识：让「AI 生成」和「本地兜底」一眼可分辨。
@@ -416,7 +378,7 @@ const App = {
             el.innerHTML = `<i class="fa-solid fa-circle-exclamation"></i><span>备用课文 · 词库例句拼合（未调用 AI）</span>`;
         } else {
             el.className = "mt-2 inline-flex items-center gap-1.5 text-xs font-semibold text-emerald-700 bg-emerald-50 border border-emerald-200 px-3 py-1 rounded-full";
-            el.innerHTML = `<i class="fa-solid fa-wand-magic-sparkles"></i><span>由 AI 依据本轮生词即时生成</span>`;
+            el.innerHTML = `<i class="fa-solid fa-wand-magic-sparkles"></i><span>由 DeepSeek 依据本轮生词即时生成</span>`;
         }
     },
 
@@ -428,13 +390,17 @@ const App = {
         this.renderStorySourceBadge();
 
         // 处理中文译文：在背诵词汇的中文翻译处加粗并标注英文
-        let translationHtml = story.translation;
-        this.currentQueue.forEach(item => {
-            // 在中文字符前后转义正则
-            const zh = item.translation.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-            const regex = new RegExp(zh, 'g');
-            translationHtml = translationHtml.replace(regex, `<strong class="text-emerald-700">${item.translation}</strong>（${item.word}）`);
-        });
+        let translationHtml = story.translation || "";
+        // 译文缺失时给出明确提示，而不是留一片空白
+        if (!translationHtml.trim() || story._translationMissing) {
+            translationHtml = `<span class="text-rose-600">本篇译文缺失（模型未返回中文翻译），请点「清空并重新背词」重新生成一次。</span>`;
+        } else {
+            this.currentQueue.forEach(item => {
+                const zh = item.translation.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+                const regex = new RegExp(zh, 'g');
+                translationHtml = translationHtml.replace(regex, `<strong class="text-emerald-700">${item.translation}</strong>（${item.word}）`);
+            });
+        }
         document.getElementById("story-translation").innerHTML = translationHtml;
 
         const wrapper = document.getElementById("translation-wrapper");
@@ -458,9 +424,10 @@ const App = {
 
     // === 通关挑战 ===
     startChallenge() {
+        // 没有题目说明生成环节出了问题，回到诊断面板而不是硬闯进去
         if (!StoryEngine.startChallenge()) {
-            this.fallbackStoryGeneration();
-            StoryEngine.startChallenge();
+            this.showStoryError();
+            return;
         }
         showScreen("challenge-screen");
         document.getElementById("cloze-card-tag").innerText = "CONTEXT CLOZE CHALLENGE";
@@ -678,12 +645,12 @@ const App = {
     },
 
     async updateWelcomeUI() {
-        const stats = await StoryEngine.getUserStats();
-        if (stats) {
-            document.getElementById("stats-known-count").innerText = stats.total_words_mastered || 0;
-            const welcomeReviewCount = document.getElementById("welcome-review-count");
-            if (welcomeReviewCount) welcomeReviewCount.innerText = stats.total_words_mastered || 0;
-        }
+        // 云端统计已停用，直接用本机已掌握词数
+        const mastered = Vocabulary.getMasteredWords().length;
+        const knownEl = document.getElementById("stats-known-count");
+        if (knownEl) knownEl.innerText = mastered;
+        const welcomeReviewCount = document.getElementById("welcome-review-count");
+        if (welcomeReviewCount) welcomeReviewCount.innerText = mastered;
     },
 
     // 登出
