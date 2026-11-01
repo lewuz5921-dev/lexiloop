@@ -1,319 +1,187 @@
 # 词境 LexiLoop · 雅思语境背词
 
-> 背单词，先把会的挑出去。剩下的攒成一组，读一篇短文记住它们，再用填空考一遍。
+> 背单词，先把会的挑出去。剩下的攒成一组，读一篇短文记住它们，再用填空考一遍。全对就不用再背了。
 
 **LexiLoop（中文名「词境」）** 是一个面向雅思考生（目标 7.5+）的语境背词 Web 应用：快速过滤熟词 → 每凑齐一批生词 → AI 即时生成一篇连贯的情景短文 → 双语对照阅读 → 完形填空通关测试 → 间隔重复复习。
 
-核心亮点：**难度阶梯**。文章与题目难度随等级递增，初级模式用简单词汇与短句、并减少每篇词量，避免「给药过猛」。
-
-**在线演示**：https://lewuz5921-dev.github.io/lexiloop/
-
----
-
-## ✨ 功能特性
-
-- **极简语境记忆**：内置 100 个雅思高频核心词，先快速过滤熟词，只把生词送进情景短文。
-- **难度阶梯（核心优化）**：
-  - 🟢 初级 · 极简轻量：每 **5** 个生词生成一篇，简单短句、干扰项少。
-  - 🟡 中级 · 标准语境：每 **8** 个生词生成一篇（默认）。
-  - 🔴 高级 · 学术进阶：每 **10** 个生词生成一篇，长难句、干扰项多。
-  - 难度偏好自动保存在浏览器（localStorage），可云端同步。
-- **AI 情景短文**：通过 Supabase Edge Function 调用大模型（服务端持有 Key，前端零密钥暴露），在真实画面里锁定词义；高亮目标词，点击查看中英释义。
-- **双语对照阅读**：长距离视觉屏障，避免无意识瞟中文；可一键解锁译文。
-- **句子挖空通关测试**：为每个目标词生成一句语境例句并挖空，从选项中选出正确单词；答对的移除生词池，选错的回到生词池、和其他未学词一起重新筛（不会整批重背）。
-- **间隔重复（Spaced Repetition）**：基于简化 SM-2 算法计算下次复习时间，支持「温故知新」复习已掌握词。
-- **游客模式（零门槛体验）**：登录页一键「游客免费体验」，无需注册即可完整体验「筛选生词 → AI 情景短文 → 双语阅读 → 完形填空 → 掌握报告」全流程。进度自动保存在本机浏览器（localStorage），刷新 / 次日重开仍保留，仅限当前设备。
-- **云端同步 + 账号系统**：邮箱 / Google 登录，进度自动同步到云端，跨设备可用。游客随时可点「登录保存进度」升级为正式账号。
-- **语音朗读**：内置 TTS 朗读单词、短文与题目。
+- **在线体验**：https://lewuz5921-dev.github.io/lexiloop/
+- **形态**：零后端纯静态站，无需注册，进度存本机浏览器
+- **技术栈**：原生 HTML / CSS / JavaScript + Tailwind（CDN），无构建步骤、无 npm 依赖
 
 ---
 
-## 📁 项目结构
+## 这个产品在解决什么
+
+背单词真正的浪费不在「没背」，而在三件事：
+
+1. **背的是孤立的词**——记住了词形和中文，雅思阅读里换个搭配就认不出来；
+2. **复习时机全凭感觉**——要么天天重背同一批，要么再想起时已经忘干净；
+3. **时间花在已经会的词上**——一本词汇书里 60% 的词其实早就会了。
+
+对应三个设计决策：
+
+| 问题 | 做法 |
+| --- | --- |
+| 时间浪费在熟词上 | **先筛后学**：逐词速判会/不会，只有「不会」的进生词池，攒够一批才开始学 |
+| 词是孤立的，不会用 | **语境短文**：把一批生词塞进同一篇情景短文，词义靠上下文锁定 |
+| 复习靠感觉 | **完形填空通关 + 间隔重复**：答对才算掌握，按 SM-2 简化版推算下次复习时间 |
+
+---
+
+## 功能特性
+
+- **极简筛词**：内置 100 个雅思高频核心词，逐词速判，只把生词送进短文。
+- **难度阶梯（核心优化）**：文章长度、句长、每题干扰项数量随等级递增，避免「给药过猛」。
+
+  | 等级 | 每篇目标词 | 句数预算 | 单句词数 | 每题材干扰项 |
+  | --- | --- | --- | --- | --- |
+  | 🟢 初级 · 极简轻量 | 5 | ≈5 句 | ≤12 词 | 2 个 |
+  | 🟡 中级 · 标准语境（默认） | 8 | ≈8 句 | ≤16 词 | 3 个 |
+  | 🔴 高级 · 学术进阶 | 10 | ≈10 句 | ≤18 词 | 4 个 |
+
+  难度偏好保存于 localStorage，下次进入自动沿用。
+
+- **AI 情景短文**：调用 DeepSeek 生成一篇在真实画面里用上全部目标词的短文，目标词高亮、可点开看中英释义。
+- **双语对照阅读**：中文译文默认遮罩，避免无意识瞟中文；一键解锁。
+- **译文生词标绿**：译文里对应的中文片段同步标绿，而不是只标英文原文——这是「语境记忆」真正成立的地方（实现见下文「AI 可靠性设计」）。
+- **句子挖空通关测试**：每个目标词一句语境例句挖空，从选项中选正确单词；答对的移出生词池，答错的回到池里和其他未学词一起重新筛，不会整批重背。
+- **间隔重复（简化 SM-2）**：答对按 1 → 3 → 7 → 14 → 30 → 60 天的阶梯拉长间隔，答错重置为 1 天；「温故知新」随时可复习已掌握词。
+- **语音朗读**：内置 TTS，单词、短文、题目都可朗读。
+
+---
+
+## 快速开始
+
+### 线上直接用
+
+1. 打开 https://lewuz5921-dev.github.io/lexiloop/
+2. 点右上角 **「填 API Key」**，填入你自己的 [DeepSeek API Key](https://platform.deepseek.com/)（`sk-` 开头）
+3. 选难度 → **开始筛选生词** → 认识的划走、不认识的留下，攒满一批自动生成短文
+
+> Key 只保存在你当前浏览器的 localStorage，不上传、不进代码仓库。
+
+### 本地跑
+
+纯静态站，任意静态服务器即可（不能直接双击 `index.html`，`file://` 协议下部分能力受限）：
+
+```bash
+python -m http.server 8080
+# 打开 http://localhost:8080
+```
+
+### 部署
+
+纯静态产物，无构建步骤，可部署到任意静态托管（GitHub Pages / Vercel / Netlify 等），把 `index.html`、`login.html`、`js/` 一起上传即可。
+
+本仓库已开启 GitHub Pages，`push` 到 `main` 自动重新构建：
+
+- 首次开启：仓库 **Settings → Pages → Source** 选 `Deploy from a branch` → Branch 选 `main` + `/ (root)` → Save
+- 之后每次 `git push` 都会自动部署，地址不变（CDN 缓存约 10 分钟，配合 `?v=` 版本号可立即生效）
+
+---
+
+## 项目结构
 
 ```
 .
-├── index.html              # 主应用（背词主流程）
-├── login.html              # 登录 / 注册页
-└── js/
-    ├── vocabulary-data.js  # 雅思核心词库（100 词，可扩展）
-    ├── supabase-client.js  # 轻量 Supabase 客户端（auth + REST，零外部依赖）
-    ├── auth.js             # 认证模块（注册 / 登录 / 登出 / 会话）
-    ├── vocabulary.js       # 词库数据与云端进度同步、间隔重复算法
-    ├── story.js            # 故事生成 + 完形填空挑战 + 复习/统计
-    └── app.js              # 主控制器（UI 切换、事件、难度阶梯）
+├── index.html                      # 主应用（筛词 → 短文 → 阅读 → 挖空 → 复习）
+├── login.html                      # 旧账号入口，现为本机模式说明页（无登录表单）
+├── js/
+│   ├── vocabulary-data.js          # 词库（100 个雅思高频核心词）
+│   ├── auth.js                     # 本机模式：无账号体系，只维护游客标记
+│   ├── vocabulary.js               # 词库装载、本机进度持久化、间隔重复计算、干扰词挑选
+│   ├── story.js                    # DeepSeek 调用、Prompt 构造、超时/重试/错误归类
+│   └── app.js                      # 主流程与 UI 控制
+└── functions/generate-story/
+    └── index.ts                    # 历史参考：Supabase Edge Function 版服务端代理（当前未启用）
 ```
 
-> 部署说明：本仓库为纯静态前端，后端依赖你自己的 **Supabase 项目**（数据库 + Edge Function）。前端不持有任何 API Key。
+**注意**：`index.html` 里 JS 引用带 `?v=20261101` 版本号，用于绕过浏览器缓存。改完 `js/` 下的代码记得同步改这个版本号，否则老访客可能仍加载旧文件。
 
----
+### 扩展词库
 
-## ⚙️ 难度阶梯参数契约
+在 `js/vocabulary-data.js` 的 `IELTS_VOCABULARY_FULL` 数组里按同样字段追加即可，无需改任何逻辑：
 
-前端在请求故事生成时，会向 Edge Function 发送如下负载：
-
-```json
+```js
 {
-  "action": "generate_story",
-  "words": ["Acknowledge", "Empower", "..."],
-  "difficulty": "beginner | intermediate | advanced",
-  "mode": "user | guest",
-  "constraints": {
-    "max_sentences": 5,
-    "max_words_per_sentence": 16,
-    "style": "simple",
-    "tone": "daily",
-    "no_dialogue": true
-  }
+  word: "Ambiguous",
+  phonetic: "/æmˈbɪɡ.ju.əs/",
+  definition: "Open to more than one interpretation; not having one obvious meaning.",
+  translation: "模棱两可的；不明确的",
+  example: "His instructions were so _____ that nobody knew what to do next."
 }
 ```
 
-| 难度 | 每篇目标词量 | 句数预算 | 干扰项数量 | 文章特征 |
-|------|-------------|---------|-----------|---------|
-| `beginner` | 5 | 5 | 2 | 简单词汇、短句、生活化 |
-| `intermediate` | 8 | 8 | 3 | 标准雅思语境 |
-| `advanced` | 10 | 10 | 4 | 学术长难句、高密度 |
+`example` 里的 `_____` 会在完形填空阶段自动替换成四个选项（正确词 + 3 个形似干扰词）。
 
-Edge Function **必须读取 `difficulty` 字段** 来控制文章难度（前端已传递，服务端据此调炮制 prompt）。即使服务端暂不支持，`batchSize` 与干扰项数量仍由前端严格控制，保证「给药过猛」问题在客户端被解决。
-
-`constraints` 为**文章长度边界**：前端按难度传入句数预算（初级 5 句 / 中级 8 句 / 高级 10 句，与目标词量一一对应），句长上限、无对话、日常生活场景等由服务端读取后写入 prompt。这样每个目标词都有独立的一句来自然承载，AI 才能写出一篇**场景连贯、句句相关**的小故事，而不是多个目标词硬塞进同一句、句句无关的「词典式拼凑」。
-
-`mode` 标识调用方身份：`user` 为已登录用户（携带 Bearer Token），`guest` 为游客（无 Token）。若希望游客也能获得 AI 短文，请在 Edge Function 中放行匿名 `generate_story` 请求并加 IP/频率限流（见下方「游客模式」一节）。若未放开，游客将自动回退到本地兜底短文，全流程仍可用。
+词库可自由扩充到 300+ 词；`index.html` 的「词汇大纲」下拉也可以接入多套词表（雅思核心 / 学术 / 场景词等）切换使用。
 
 ---
 
-## 🚪 游客模式
+## AI 可靠性设计
 
-让 HR、访客或不愿注册的用户**免登录**完整体验产品，是转化注册的关键入口。
+这个项目的重点不在「调通一次 API」，而在**模型不稳定时产品还能不能站住**。核心原则是：**宁可明确报错，也不伪装成功**。
 
-### 行为说明
+- **超时与重试**：45 秒上限（断网时不会无限转圈），网络类错误自动重试 1 次，其余错误不重试、直接给结论。
+- **错误分类，每类给可操作的话**：
 
-| 维度 | 游客（Guest） | 登录用户（User） |
-|------|--------------|-----------------|
-| 入口 | 登录页「游客免费体验」按钮 | 邮箱 / Google 登录 |
-| 进度存储 | 本机 `localStorage`（键 `lexiloop_guest_progress`） | Supabase 云端（跨设备） |
-| 持久化 | 同一浏览器刷新 / 重开保留 | 任意设备登录即同步 |
-| 间隔重复 / 复习 | ✅ 本机计算（基于本地 `next_review_at`） | ✅ 云端计算 |
-| AI 短文 | 取决于 Edge Function 是否放行匿名（否则回退本地兜底） | ✅ 携带 Token 调用 |
-| 升级为正式账号 | 右上角「登录保存进度」一键切换 | — |
+  | 类型 | 触发条件 | 用户看到 |
+  | --- | --- | --- |
+  | `auth` | HTTP 401 | API Key 无效或已被禁用 |
+  | `billing` | HTTP 402 / 403 | 账户余额不足或无权限 |
+  | `rate` | HTTP 429 | 请求过于频繁，已被限流 |
+  | `timeout` | 超过 45 秒 | 请求超时（DeepSeek 响应太慢） |
+  | `network` | fetch 失败 / DNS 失败 | 网络无法连到 api.deepseek.com |
+  | `http` | 408 / 5xx | DeepSeek 服务端异常 |
+  | `bad_payload` | 返回不是合法 JSON、或字段缺失 | 模型返回内容不完整 |
 
-### 前端实现要点
-
-- `Auth.init()` 现在返回三态：`"user"` / `"guest"` / `"none"`。游客由 `localStorage` 键 `lexiloop_guest === "1"` 识别，优先级高于登录态。
-- 游客模式下 `Vocabulary.loadGuestProgress()` 从本机恢复掌握状态，`StoryEngine.processResults()` 在挑战结束后通过 `Vocabulary.saveGuestProgress()` 写回本机。
-- 游客已掌握的单词会在后续会话中被自动跳过（与不登录时每次都从零开始不同），体验更连贯。
-
-### 让游客也获得真·AI 短文（可选）
-
-默认情况下 Edge Function 可能因缺少 Token 而拒绝游客请求，此时前端自动回退到本地生成的兜底短文（含完形填空，流程不受影响）。若希望游客也调用大模型，在 Edge Function 中放行匿名 `generate_story` 并加限流：
-
-```typescript
-// supabase/functions/generate-story/index.ts (节选)
-Deno.serve(async (req) => {
-  const { action, words, difficulty = "intermediate", mode = "user" } = await req.json();
-
-  // 游客：仅放行故事生成，且做简单频率限制，防止额度被盗刷
-  if (mode === "guest" && action === "generate_story") {
-    const ip = req.headers.get("x-forwarded-for") ?? "unknown";
-    // 接入你的限流逻辑（如 Deno KV / Upstash），例如每 IP 每小时 20 次
-    // if (await rateLimited(ip)) return new Response("rate limited", { status: 429 });
-  }
-
-  // 已登录用户仍建议校验 Token（原逻辑保留）
-  // const authHeader = req.headers.get("Authorization"); ...
-  // ... 调用大模型生成 ...
-});
-```
-
-> 游客无法调用 `lookup_word`（查词）等需鉴权的 action，但词库内置词点击后可直接从本地展示释义，无需联网。
+- **不做假兜底**：早期版本在 AI 失败时会用词库例句拼一段「备用课文」顶上，看起来像成功。现在删掉了——失败就显示诊断面板（哪一步错了 + 怎么修 + 重试按钮），因为**把兜底内容当成 AI 输出给用户，是产品层面的说谎**。
+- **返回结构校验**：`questions` 为空、`translation` 缺失等一律视为失败，避免用户拿到一篇「没有中文翻译」的残文而不知道为什么。
+- **译文标绿的两段式兜底**：先由 Prompt 要求模型在译文中把目标词对应的中文片段包上 `<span class="target-word">`（跟语境走，而不是拿词典释义硬匹配多义串）；模型漏标时，前端再按释义分词 + 译文语境反查补标。实测 8/8 全部标绿。
 
 ---
 
-## 🛠️ 后端配置（Supabase）
+## 架构演进（2026-10）
 
-### 1. 创建数据表（SQL）
+**v1：前端 → Supabase Edge Function → DeepSeek**
 
-在 Supabase 控制台的 SQL Editor 执行：
+DeepSeek Key 藏在服务端，前端零密钥，是更「正确」的姿势。但 Supabase 免费项目会在长期无活动后被平台回收——**两次**，域名直接 NXDOMAIN，整条链路整体失效，且不是靠改代码能救的。
 
-```sql
--- 单词掌握进度
-create table if not exists public.word_progress (
-  user_id          uuid        not null references auth.users(id) on delete cascade,
-  word             text        not null,
-  phonetic         text        default '',
-  definition       text        default '',
-  translation      text        default '',
-  status           text        not null default 'unknown', -- unknown | learning | mastered
-  correct_count    integer     not null default 0,
-  wrong_count      integer     not null default 0,
-  last_reviewed_at timestamptz,
-  mastered_at      timestamptz,
-  next_review_at   timestamptz,
-  primary key (user_id, word)
-);
+**v2（当前）：前端 → api.deepseek.com 直连**
 
--- 学习会话记录
-create table if not exists public.learning_sessions (
-  id           uuid        primary key default gen_random_uuid(),
-  user_id      uuid        not null references auth.users(id) on delete cascade,
-  session_type text        not null,
-  words_tested text[]      not null default '{}',
-  score        numeric     not null default 0,
-  detail       jsonb,
-  created_at   timestamptz not null default now()
-);
+应用退化成零后端纯静态站，Key 由使用者在页面里自行填写、只存本机 localStorage。
 
--- 用户统计（连续打卡、掌握总数等）
-create table if not exists public.user_stats (
-  user_id             uuid primary key references auth.users(id) on delete cascade,
-  total_words_mastered integer not null default 0,
-  total_sessions      integer not null default 0,
-  streak_days         integer not null default 0,
-  last_study_date     date
-);
-```
+| | v1 服务端代理 | v2 直连（当前） |
+| --- | --- | --- |
+| 部署依赖 | Supabase 项目 | 无 |
+| 使用者配置 | 零配置 | 需自备 API Key |
+| Key 安全性 | 不出服务端 | 存于浏览器 |
+| 适合场景 | 公开给他人使用 | 个人使用、录屏演示、面试演示 |
+| 抗风险 | 平台回收即失效 | 不受第三方平台影响 |
 
-### 2. 启用行级安全（RLS）
-
-每个用户只能读写自己的数据：
-
-```sql
-alter table public.word_progress      enable row level security;
-alter table public.learning_sessions enable row level security;
-alter table public.user_stats         enable row level security;
-
-create policy "own_progress"  on public.word_progress
-  for all using (auth.uid() = user_id) with check (auth.uid() = user_id);
-create policy "own_sessions"  on public.learning_sessions
-  for all using (auth.uid() = user_id) with check (auth.uid() = user_id);
-create policy "own_stats"     on public.user_stats
-  for all using (auth.uid() = user_id) with check (auth.uid() = user_id);
-```
-
-### 3. Edge Function `generate-story`
-
-大模型 Key（如 DeepSeek）**仅存于你的 Supabase 服务端环境变量**，**不要** 写进前端或 git 仓库。本前端只通过 `js/supabase-client.js` 中的 `SUPABASE_URL + "/functions/v1/generate-story"` 调用它，从不持有任何密钥。
-
-> ⚠️ **重要：本仓库的 `functions/generate-story/index.ts` 就是线上部署的权威版本**，与 Supabase 上正在运行的函数保持一致。它会把前端传入的 `words` 真正写进发给大模型的 prompt，强制每个目标词都在故事中自然出现并高亮。如需升级（换模型、加限流、调 prompt），改这个文件后用 `supabase functions deploy generate-story --no-verify-jwt` 重新部署即可。
-> 前端期望的函数返回契约见下方示例（保持 `title / story / translation / questions[]` 字段即可兼容）。
-
-```typescript
-// supabase/functions/generate-story/index.ts (Deno)
-import "jsr:@supabase/functions-js/edge-runtime.d.ts";
-
-const DIFFICULTY_PROMPT = {
-  beginner:      "Use very simple vocabulary and short sentences. CEFR A2 level.",
-  intermediate:  "Use standard IELTS-context vocabulary and moderate sentences. CEFR B2.",
-  advanced:      "Use academic, dense sentences similar to IELTS Reading. CEFR C1.",
-};
-
-Deno.serve(async (req) => {
-  const { action, words, word, difficulty = "intermediate" } = await req.json();
-
-  if (action === "lookup_word") {
-    // 调用词典 API 或返回本地释义，返回 { word, phonetic, definition, translation }
-    return new Response(JSON.stringify({ word, phonetic: "/.../", definition: "...", translation: "..." }), {
-      headers: { "Content-Type": "application/json" },
-    });
-  }
-
-  const sys = `You are an IELTS tutor. Write a tiny coherent story (3-5 sentences) that naturally uses EVERY word in the list as a <span class="target-word" data-word="Word">Word</span> highlight. ${DIFFICULTY_PROMPT[difficulty] || ""}`;
-  const user = `Words: ${words.join(", ")}.
-For EACH word, create ONE cloze sentence: a natural, contextual English sentence with the target word replaced by exactly five underscores "_____". Do NOT use the target word itself in the sentence.
-Return strictly JSON:
-{
-  "title": "short story title",
-  "story": "HTML string with highlighted target words",
-  "translation": "Chinese translation of the whole story",
-  "questions": [
-    {
-      "target_word": "Word",
-      "cloze_sentence": "A contextual English sentence with _____ where the word fits",
-      "options": ["Word", "distractor1", "distractor2", "distractor3"],
-      "options_translation": ["中文", "干扰项中文", "..."],
-      "correct_answer": "Word"
-    }
-  ]
-}`;
-
-  const apiKey = Deno.env.get("DEEPSEEK_API_KEY");
-  const r = await fetch("https://api.deepseek.com/chat/completions", {
-    method: "POST",
-    headers: { "Authorization": `Bearer ${apiKey}`, "Content-Type": "application/json" },
-    body: JSON.stringify({
-      model: "deepseek-chat",
-      messages: [{ role: "system", content: sys }, { role: "user", content: user }],
-      response_format: { type: "json_object" },
-    }),
-  });
-  const data = await r.json();
-  const result = JSON.parse(data.choices?.[0]?.message?.content ?? "{}");
-  return new Response(JSON.stringify(result), { headers: { "Content-Type": "application/json" } });
-});
-```
-
-> **（仅当你决定重建/替换现有函数时才需要执行以下要点）部署要点：**
-> 1. 函数名必须为 `generate-story`，部署后 URL = `${SUPABASE_URL}/functions/v1/generate-story`，须与前端 `js/supabase-client.js` 的 `SUPABASE_URL` 一致。
-> 2. **关闭该函数的 JWT 校验（Verify JWT = OFF）**，否则游客（无 token）调用会被 401 拒绝；CLI 用 `supabase functions deploy generate-story --no-verify-jwt`。
-> 3. 在 **Project Settings → Edge Functions → Secrets** 新增 `DEEPSEEK_API_KEY`（值填你的 Key，**只填这里，不进代码**）；游客限流建议在同页开启（约 8 次/分/IP）。
->
-> 若 AI 服务不可用（函数未部署 / 未设密钥 / 跨域被拦 / JWT 未关闭），前端会自动使用 `js/vocabulary-data.js` 中每个词条的 `example` 字段（含 `_____` 占位符）生成本地兜底句子挖空题，保证游客/未登录用户也能完整体验。
->
-> **关于「故事连贯性」**：本仓库 `functions/generate-story/index.ts` 已按难度读取前端传入的句数预算（初级 5 句 / 中级 8 句 / 高级 10 句），并在 system prompt 中强制要求「唯一场景贯穿 + 时间/因果衔接（First / Then / However / So / Finally）+ 严禁一句一词、句句无关」，同时要求中文翻译通顺像人话。这样才能产出真正有情景、易读懂的小故事，而不是多个目标词硬塞的「词典式拼凑」。
-
-### 4. 前端客户端配置
-
-编辑 `js/supabase-client.js`，替换为你的项目地址与 anon key（**publishable key，可公开**，安全由 RLS 保证）：
-
-```javascript
-const SUPABASE_URL = "https://your-project.supabase.co";
-const SUPABASE_ANON_KEY = "your-anon-key";
-```
+**这是一个明确的取舍，不是退步**：在「随时可能消失的免费后端」和「多一步填 Key」之间，后者至少不会某天突然打不开。`functions/generate-story/index.ts` 保留了 v1 的服务端实现作为参考——若日后需要公开发布（不让陌生人烧自己的额度），新建任意 Edge Runtime 项目、注入 `DEEPSEEK_API_KEY`、再把 `js/story.js` 的请求地址指回去即可。
 
 ---
 
-## 🚀 本地运行
+## 已知限制
 
-任意静态服务器即可（无需构建）：
-
-```bash
-# 任选其一
-python3 -m http.server 8080
-# 或
-npx serve .
-```
-
-打开 `http://localhost:8080/` 即可。首次使用点击右上角注册一个账号（或配置 Google OAuth）。
+- **Key 存在浏览器**：仅适合个人使用与演示，不要把带 Key 的页面公开分享，或把它部署成别人能白嫖你额度的公共服务。
+- **进度不同步**：数据在 localStorage，换设备 / 换浏览器 / 清缓存即丢失（这是砍掉账号体系的直接代价）。
+- **词库固定 100 词**：是雅思高频核心的精选子集，不是全量词典，需要更多词自行按上文格式扩充。
+- **依赖 CDN**：Tailwind、FontAwesome、Google Fonts 均走 CDN，弱网环境下首屏样式可能延迟。
+- **无自动化测试**：验证方式是本地起服务后用无头浏览器跑完整流程（筛选 → 生成 → 阅读 → 挖空）。
 
 ---
 
-## ☁️ 部署
+## 许可
 
-纯静态产物，可部署到任意静态托管（Vercel、Netlify、GitHub Pages、CloudStudio 等）。确保 `index.html` 与 `login.html` 及 `js/` 目录一同上传。若托管平台对未知路径做 SPA 回退（fallback 到 index.html），不影响功能，但请勿依赖不存在的 `manifest.json` / `css/style.css` 等路径。
-
-### GitHub Pages（本项目已在用）
-
-本仓库已开启 GitHub Pages，在线演示地址：
-
-```
-https://lewuz5921-dev.github.io/lexiloop/
-```
-
-首次开启：仓库 Settings → Pages → Source 选 `Deploy from a branch` → Branch 选 `main` + `/ (root)` → Save。此后每次 `git push` 到 `main` 都会自动重新构建部署，链接不变。
+MIT License，仅供学习与交流使用。
 
 ---
 
-## 📝 词库扩展
+## 作者
 
-词库位于 `js/vocabulary-data.js` 的 `IELTS_VOCABULARY_FULL`，每条格式：
+**罗雨辰** · 产品方向
 
-```javascript
-{ word: "Acknowledge", phonetic: "/əkˈnɒl.ɪdʒ/", definition: "英文释义...", translation: "中文释义" }
-```
-
-可自由扩充至 300+ 词；`index.html` 的「词汇大纲」下拉亦可接入多套词表。
-
----
-
-## 📄 许可
-
-MIT License. 仅供学习与交流使用。
+- GitHub：[@lewuz5921-dev](https://github.com/lewuz5921-dev)
+- 作品集：https://lewuz5921-dev.github.io/portfolio/

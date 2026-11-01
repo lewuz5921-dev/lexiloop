@@ -1,17 +1,19 @@
 // ============================================================
-// Supabase Edge Function: generate-story
+// Supabase Edge Function: generate-story（历史参考实现，当前未启用）
 // 项目：词境 LexiLoop（雅思语境抗遗忘背词）
 //
-// ⚠️ ⚠️ 重要：本文件是「可选升级参考」，请勿直接部署！
-//   你的 Supabase 项目里【已经部署了一个正常工作的 generate-story 函数】
-//   （实测返回 HTTP 200 与完整 DeepSeek 故事 JSON，前端完全兼容）。
-//   若你到 Supabase 后台粘贴本文件「新建/覆盖」同名函数，会覆盖掉现有的
-//   正常运行的函数。只有在「原函数丢失 / 想重建 / 想升级」时才用本文件作起点。
+// ⚠️ 当前线上版本不使用本函数。
+//   2026-10 起 Supabase 免费项目被平台回收（域名 NXDOMAIN），
+//   前端改为直连 api.deepseek.com，Key 由用户在页面「AI 设置」里填写、
+//   仅存本机 localStorage，整个应用变成零后端静态站。
+//   本文件保留下来，作为「日后想重新用服务端代理隐藏 Key」的起点：
+//   若要启用，需要新建 Supabase（或任意 Edge Runtime）项目，
+//   设置环境变量 DEEPSEEK_API_KEY，再把前端 js/story.js 的请求地址指回来。
 //
 // 安全原则：
 //   ⚠️ DeepSeek API Key 仅通过「服务端密钥」注入，本文件 NEVER 写死任何 Key。
-//   部署方在 Supabase 后台设置密钥  DEEPSEEK_API_KEY = sk-xxxx
-//   前端只调用本函数，永远拿不到真实 Key。
+//   部署方在后台设置密钥  DEEPSEEK_API_KEY = sk-xxxx
+//   前端只调用本函数，真实 Key 不出服务端。
 //
 // 功能：
 //   接收 { action, words, difficulty, mode }

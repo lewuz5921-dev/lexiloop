@@ -48,21 +48,14 @@ const App = {
         if (diffSelect) diffSelect.value = this.difficulty;
         this.updateWelcomeDesc();
 
-        // 检查登录/游客状态（不阻塞本地词库使用）
-        let authState = "none";
+        // 本机模式：无账号体系，直接进入（Auth.init 始终返回 guest）
         try {
-            authState = await Auth.init();
+            await Auth.init();
         } catch (e) {
-            console.error("Auth init 失败:", e);
-            authState = "none";
+            console.error("Auth init 失败，按本机模式继续:", e);
         }
 
-        if (authState === "none") {
-            window.location.href = "login.html";
-            return;
-        }
-
-        // 本机模式：从 localStorage 读取进度（云端账号已停用）
+        // 本机模式：从 localStorage 读取进度
         Vocabulary.loadGuestProgress();
         this.renderUserMenu("guest");
 
@@ -732,37 +725,15 @@ const App = {
         if (welcomeReviewCount) welcomeReviewCount.innerText = mastered;
     },
 
-    // 登出
-    async logout() {
-        Auth.exitGuestMode();
-        await Auth.signOut();
-        window.location.href = "login.html";
-    },
-
-    // 游客切换到登录页（清除游客标记，进入完整账号流程）
-    switchToLogin() {
-        Auth.exitGuestMode();
-        window.location.href = "login.html";
-    },
-
-    // 渲染右上角用户菜单（登录 / 游客两种形态）
+    // 渲染右上角状态：本机存储（无账号体系）
     renderUserMenu(mode) {
         const slot = document.getElementById("user-menu-slot");
         if (!slot) return;
-        if (mode === "guest") {
-            slot.innerHTML = `
-                <span class="bg-emerald-50 text-emerald-700 px-3 py-1.5 rounded-full font-medium text-xs flex items-center space-x-1">
-                    <i class="fa-solid fa-user-secret text-[10px]"></i><span>游客模式</span>
-                </span>
-                <button onclick="App.switchToLogin()" class="text-xs bg-indigo-600 hover:bg-indigo-700 text-white font-medium px-3 py-1.5 rounded-lg transition" title="登录以云端保存进度">登录保存进度</button>`;
-        } else {
-            const email = Auth.currentUser?.email || "";
-            slot.innerHTML = `
-                <span id="user-email-display" class="text-xs text-slate-500 hidden md:inline">${email}</span>
-                <button onclick="App.logout()" class="text-slate-400 hover:text-rose-500 transition p-2 rounded-lg hover:bg-slate-50" title="退出登录">
-                    <i class="fa-solid fa-right-from-bracket text-lg"></i>
-                </button>`;
-        }
+        slot.innerHTML = `
+            <span class="bg-emerald-50 text-emerald-700 px-3 py-1.5 rounded-full font-medium text-xs flex items-center space-x-1"
+                  title="学习进度保存在本机浏览器，换设备或清缓存会丢失">
+                <i class="fa-solid fa-database text-[10px]"></i><span>本机存储</span>
+            </span>`;
     },
 };
 
